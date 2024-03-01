@@ -1,2 +1,2 @@
 # Projects
-A place for all my projects from school assignments or personal
+A place for all my team/personal projects from school assignments
