@@ -165,7 +165,7 @@ testset
 ncol(data1) # 8 but -1 for diagnosis so 7
 floor(log(7,2)+1) # 3 for mtry
 # calibrating for optimal number of trees with OOB error
-B=c(100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000)
+B=c(100:700)
 OOB.error<-seq(1:length(B))
 for (i in 1:length(B)){
   set.seed(234)
@@ -175,9 +175,10 @@ for (i in 1:length(B)){
 OOB.error
 results<- data.frame(B, OOB.error)
 results 
-# lowest OOB error appears at 150, but starts stabilizing at lowest point from 350. Thus, will use 350
+ggplot(results)+aes(y=OOB.error, x=B)+geom_line()+geom_point()
+# lowest OOB error appears at 367 and 370, and second lowest appears and stabilizing between 321 and 394. Thus, will use 367, closer to midpoint of 357.5
 set.seed(234)
-m.RF.1 <- randomForest(diagnosis ~ . , data = trainset, mtry=3,ntree=350, importance = T)
+m.RF.1 <- randomForest(diagnosis ~ . , data = trainset, mtry=3,ntree=367, importance = T)
 m.RF.1
 # trainset model and confusion matrix
 rf.acc=mean(testset$diagnosis==predict(m.RF.1, newdata = testset)) # Accuracy
@@ -227,6 +228,7 @@ for (i in 1:length(hidden.list)){
       nn.test[i,6]<-nn.cm[2,2]/(nn.cm[2,1]+nn.cm[2,2]) # Recall
     }
 }
+
 nn.test 
 # model 10 (c(3,3)) and 20(c(5,5)) have the same and the best values for all 5 scores. Highest accuracy, precision and recall while lowest false negative and false positive.
 set.seed(234)
@@ -277,10 +279,10 @@ summary(glm2)
 # time taken to predict/diagnose
 # RF
 a=0
-time.taken<-function(model.used){
+time.taken<-function(model.used, test=testset){
   for (i in 1:10){
     start<-Sys.time()
-    predict(model.used, newdata = testset)
+    predict(model.used, newdata = test)
     stop<-Sys.time()
     a=a+stop-start
   }
@@ -291,3 +293,28 @@ glm.time<-time.taken(glm2)
 nn.time<-time.taken(nn1)
 # add results to final table
 final.results[,Time_Taken:=c(rf.time, glm.time,nn.time)]
+
+library(xgboost)
+library(Matrix)
+
+sparse_matrix <- sparse.model.matrix(diagnosis ~ ., data = trainset)[,-1]
+
+output_vector <- trainset[,diagnosis] == 1
+
+bst <- xgboost(data = sparse_matrix, label = output_vector, max.depth = 200, eta = 1, nrounds = 5,nthread = 10, objective = "binary:logistic")
+
+sparse_matrix_test <- sparse.model.matrix(diagnosis ~ ., data = testset)[,-1]
+test.pred.xgb=as.numeric(predict(bst, newdata = sparse_matrix_test) > 0.5)
+test.pred.xgb <- as.numeric(test.pred.xgb > 0.5)
+
+xgb.cm<-table("testset"=testset$diagnosis,"XGBoost"=test.pred.xgb)
+xgb.acc<- mean(test.pred.nn1 == testset$diagnosis)
+xgb.fp<-xgb.cm[1,2]/(xgb.cm[1,2]+xgb.cm[1,1]) # False Positive
+xgb.fn<-xgb.cm[2,1]/(xgb.cm[2,1]+xgb.cm[2,2]) # False Negative
+xgb.precision<-xgb.cm[2,2]/(xgb.cm[1,2]+xgb.cm[2,2]) # Precision
+xgb.recall<-xgb.cm[2,2]/(xgb.cm[2,1]+xgb.cm[2,2]) # Recall
+xgb.time<-time.taken(bst,sparse_matrix_test)
+
+final.results.2<-data.table(Model=c("Random Forest", "Logistic Regression", "Multi Layer Perceptron", "XGBoost"), Accuracy=c(rf.acc, glm.acc, nn.acc, xgb.acc), False_Positive=c(rf.fp,glm.fp,nn.fp, xgb.fp),False_Negative=c(rf.fn,glm.fn,nn.fn, xgb.fn), Precision=c(rf.precision,glm.precision,nn.precision, xgb.precision),Recall=c(rf.recall,glm.recall,nn.recall, xgb.recall))
+
+final.results.2[,Time_Taken:=c(rf.time, glm.time,nn.time,xgb.time)]
